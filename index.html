@@ -38,8 +38,8 @@
             z-index: 1000;
             transition: opacity 0.6s ease;
         }
-        .correct   { color: #0f8; }
-        .wrong     { color: #f44; }
+        .correct { color: #0f8; }
+        .wrong   { color: #f44; }
         .ending-background {
             background: #000 url('https://via.placeholder.com/1920x1080/111/222?text=Ending+BG') repeat-x;
             background-size: 100vh;
@@ -66,13 +66,13 @@
     let positions = [];
     let gridIDs = [];
     let correctWindowIndex = -1;
+    let gameEnded = false;
 
-    // Config: 2×4 Grid
+    // Config
     const gridSize = { rows: 4, cols: 2 };
     let windowSize = { width: 180, height: 210 };
     let spacing = { x: 210, y: 230 };
 
-    // Timing
     const totalShuffleTime = 10500;
     const difficulty = 40;
     let shuffleDuration = (totalShuffleTime / difficulty) - 60;
@@ -99,27 +99,28 @@
         setTimeout(() => { el.style.opacity = "0"; }, 2200);
     }
 
-    function fadeAndClose(win) {
-        if (win.closed) return;
-        const doc = win.document;
-        const img = doc.getElementById('winImg');
-        if (!img) return;
+    function fadeAndCloseAllPopups() {
+        if (gameEnded) return;
+        gameEnded = true;
+        canClickWindows = false;
 
-        // Fade to black
-        const fadeDiv = doc.createElement('div');
-        fadeDiv.style.cssText = `
-            position:fixed; inset:0; background:#000; opacity:0;
-            transition: opacity 1.1s ease; pointer-events:none;
-        `;
-        doc.body.appendChild(fadeDiv);
+        windows.forEach(win => {
+            if (win.closed) return;
+            const doc = win.document;
+            if (!doc || !doc.body) return;
 
-        // Trigger fade
-        setTimeout(() => { fadeDiv.style.opacity = "1"; }, 80);
+            const fadeDiv = doc.createElement('div');
+            fadeDiv.style.cssText = `
+                position:fixed; inset:0; background:#000; opacity:0;
+                transition:opacity 1.4s ease; pointer-events:none;
+            `;
+            doc.body.appendChild(fadeDiv);
+            setTimeout(() => { fadeDiv.style.opacity = "1"; }, 100);
 
-        // Close window after fade
-        setTimeout(() => {
-            if (!win.closed) win.close();
-        }, 1200);
+            setTimeout(() => {
+                if (!win.closed) win.close();
+            }, 1600);
+        });
     }
 
     function openWindows() {
@@ -158,23 +159,19 @@
             gridIDs.push(i+1);
             positions.push({x, y});
 
-            // Click handler in popup
             win.addEventListener('click', () => {
-                if (!canClickWindows) return;
+                if (!canClickWindows || gameEnded) return;
                 const img = win.document.getElementById('winImg');
                 if (!img) return;
 
                 const fname = img.src.split('/').pop();
-                const clickedIsCorrect = (win === windows[correctWindowIndex]);
+                const isCorrect = (win === windows[correctWindowIndex]);
 
                 flashScreen(colors[fname] || '#000');
-                showFeedback(clickedIsCorrect);
+                showFeedback(isCorrect);
 
-                fadeAndClose(win);
-
-                if (clickedIsCorrect) {
-                    // Optional: you can add ending logic here (stop spin, play sound, etc.)
-                }
+                // Close EVERY popup (with fade)
+                fadeAndCloseAllPopups();
             });
         }
     }
@@ -190,9 +187,10 @@
             const elapsed = now - startTime;
             const t = Math.min(elapsed / duration, 1);
             const eased = easeInOutQuad(t);
-            const x = from.x + (to.x - from.x) * eased;
-            const y = from.y + (to.y - from.y) * eased;
-            win.moveTo(Math.round(x), Math.round(y));
+            win.moveTo(
+                Math.round(from.x + (to.x - from.x) * eased),
+                Math.round(from.y + (to.y - from.y) * eased)
+            );
             if (t < 1) requestAnimationFrame(step);
             else if (onComplete) onComplete();
         }
@@ -243,10 +241,7 @@
         windows.forEach((win, i) => {
             if (win.closed) return;
             const img = win.document.getElementById('winImg');
-            if (img) {
-                const id = gridIDs[i];
-                img.src = `https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/key${id}.png`;
-            }
+            if (img) img.src = `https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/key${gridIDs[i]}.png`;
         });
     }
 
@@ -255,28 +250,23 @@
         const cx = window.screen.availWidth / 2;
         const cy = window.screen.availHeight / 2;
         const duration = transitionDuration;
-
         let startTime = performance.now();
+
         function step(now) {
             const elapsed = now - startTime;
             const t = Math.min(elapsed / duration, 1);
             const eased = easeInOutQuad(t);
-
             windows.forEach((win, i) => {
                 if (win.closed) return;
-                const id = gridIDs[i];
-                const ang = (id - 1) * angleStep;
+                const ang = (gridIDs[i] - 1) * angleStep;
                 const tx = cx + circleRadius * Math.cos(ang) - windowSize.width / 2;
                 const ty = cy + circleRadius * Math.sin(ang) - windowSize.height / 2;
-                const curX = positions[i].x;
-                const curY = positions[i].y;
-
+                const cur = positions[i];
                 win.moveTo(
-                    Math.round(curX + (tx - curX) * eased),
-                    Math.round(curY + (ty - curY) * eased)
+                    Math.round(cur.x + (tx - cur.x) * eased),
+                    Math.round(cur.y + (ty - cur.y) * eased)
                 );
             });
-
             if (t < 1) requestAnimationFrame(step);
             else spinCircle();
         }
@@ -292,12 +282,12 @@
         const cy = window.screen.availHeight / 2;
 
         function step() {
+            if (gameEnded) return;
             angle += speed;
             const radOffset = angle * Math.PI / 180;
             windows.forEach((win, i) => {
                 if (win.closed) return;
-                const id = gridIDs[i];
-                const baseAng = (id - 1) * (2 * Math.PI / windows.length);
+                const baseAng = (gridIDs[i] - 1) * (2 * Math.PI / windows.length);
                 const ang = baseAng + radOffset;
                 const x = cx + circleRadius * Math.cos(ang) - windowSize.width / 2;
                 const y = cy + circleRadius * Math.sin(ang) - windowSize.height / 2;
@@ -317,7 +307,7 @@
         if (img) {
             img.src = 'https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/green-key.png';
             setTimeout(() => {
-                if (img.src.includes('green-key.png')) {
+                if (!win.closed && img.src.includes('green-key.png')) {
                     img.src = backgroundImage;
                 }
             }, 1100);
@@ -329,12 +319,26 @@
         const audio = document.getElementById('limboAudio');
 
         video.style.display = 'block';
+
+        // Ensure audio is loaded and try to play
+        audio.load();
         audio.currentTime = 180;
-        audio.play().catch(() => {});
+
+        const tryPlayAudio = () => {
+            audio.play().then(() => {
+                console.log("Limbo audio started");
+            }).catch(e => {
+                console.warn("Audio play failed:", e);
+                // Retry once after user interaction (common mobile/desktop policy)
+                setTimeout(() => audio.play().catch(() => {}), 800);
+            });
+        };
+
+        // Start audio slightly before or after video
+        setTimeout(tryPlayAudio, 300);
 
         setTimeout(() => {
-            video.play().catch(() => {});
-            // No loop → will stop at natural end
+            video.play().catch(e => console.warn("Video play failed:", e));
         }, 800);
 
         openWindows();
