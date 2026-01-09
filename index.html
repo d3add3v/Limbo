@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limbo Keys - Compact</title>
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/key.png">
+
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            background: #0a0015;
+            font-family: Arial, sans-serif;
+            color: #eee;
+        }
+
+        #backgroundVideo {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+            display: none;
+        }
+
+        .ending-background {
+            background: #000 url('https://via.placeholder.com/1920x1080/111/222?text=Ending+BG') repeat-x;
+            background-size: 100vh;
+            animation: scrollBackground 120s linear infinite;
+        }
+
+        @keyframes scrollBackground {
+            0%   { background-position: 0 0; }
+            100% { background-position: -10000px 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <video id="backgroundVideo" muted loop playsinline>
+        <source src="https://github.com/d3add3v/Limbo/raw/refs/heads/main/keys/audioandvideo/GameBG.mp4" type="video/mp4">
+    </video>
+
+    <audio id="limboAudio" preload="auto">
+        <source src="https://github.com/d3add3v/Limbo/raw/refs/heads/main/keys/audioandvideo/limbo.mp3" type="audio/mpeg">
+    </audio>
+
+<script>
+    const windows = [];
+    let positions = [];
+    let gridIDs = [];
+    
+    // Config: 2x4 Grid
+    const gridSize = { rows: 4, cols: 2 };
+    let windowSize = { width: 180, height: 180 }; // Shortened height
+    let spacing = { x: 210, y: 200 }; // Adjusted spacing for the shorter height
+    
+    // Timing logic
+    const totalShuffleTime = 10500; 
+    const difficulty = 40; 
+    let shuffleDuration = (totalShuffleTime / difficulty) - 60; 
+
+    const backgroundImage = 'https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/key.png';
+    const transitionDuration = 3200;
+    let circleRadius = 280;
+    let canClickWindows = false;
+
+    window.addEventListener('beforeunload', closeAllWindows);
+
+    const shufflePatterns = [
+        {1:2, 2:1, 3:4, 4:3, 5:6, 6:5, 7:8, 8:7},
+        {1:3, 2:4, 3:1, 4:2, 5:7, 6:8, 7:5, 8:6},
+        {1:5, 2:6, 3:7, 4:8, 5:1, 6:2, 7:3, 8:4},
+        {1:8, 2:7, 3:6, 4:5, 5:4, 6:3, 7:2, 8:1},
+        {1:2, 2:3, 3:4, 4:1, 5:6, 6:7, 7:8, 8:5}
+    ];
+
+    function openWindows() {
+        const sw = window.screen.availWidth;
+        const sh = window.screen.availHeight;
+        
+        const totalGridW = (gridSize.cols - 1) * spacing.x + windowSize.width;
+        const totalGridH = (gridSize.rows - 1) * spacing.y + windowSize.height;
+        
+        const startX = (sw - totalGridW) / 2;
+        const startY = (sh - totalGridH) / 2;
+
+        const colors = {
+            'key1.png':'#ff2020','key2.png':'#20ff20','key3.png':'#44fcfc',
+            'key4.png':'#9404d4','key5.png':'#fcfc84','key6.png':'#84fcb4',
+            'key7.png':'#445ccc','key8.png':'#f45cfc'
+        };
+
+        for (let i = 0; i < gridSize.rows * gridSize.cols; i++) {
+            const col = i % gridSize.cols;
+            const row = Math.floor(i / gridSize.cols);
+            const x = startX + col * spacing.x;
+            const y = startY + row * spacing.y;
+
+            const win = window.open('', '_blank', `width=${windowSize.width},height=${windowSize.height},left=${Math.round(x)},top=${Math.round(y)},scrollbars=no`);
+            if (!win) continue;
+
+            win.document.write(`
+<!DOCTYPE html><html><head><title>Key</title></head>
+<body style="margin:0;overflow:hidden;background:#000;display:flex;justify-content:center;align-items:center;">
+<img src="${backgroundImage}" id="winImg" style="width:100%;height:100%;object-fit:cover;pointer-events:none;user-select:none;" draggable="false">
+</body></html>`);
+            win.document.close();
+
+            windows.push(win);
+            gridIDs.push(i+1);
+            positions.push({x, y});
+            win.correctWindow = false;
+
+            win.addEventListener('click', () => {
+                if (!canClickWindows) return;
+                const img = win.document.getElementById('winImg');
+                if (!img) return;
+                const fname = img.src.split('/').pop();
+                flashScreen(colors[fname] || '#000');
+
+                if (win.correctWindow) window.postMessage('win', '*');
+                else                   window.postMessage('lose', '*');
+            });
+        }
+    }
+
+    function easeInOutQuad(t) {
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    }
+
+    function animateMove(win, from, to, duration, onComplete) {
+        if (win.closed) return;
+        const startTime = performance.now();
+
+        function step(now) {
+            const elapsed = now - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            const eased = easeInOutQuad(t);
+
+            const x = from.x + (to.x - from.x) * eased;
+            const y = from.y + (to.y - from.y) * eased;
+            win.moveTo(Math.round(x), Math.round(y));
+
+            if (t < 1) requestAnimationFrame(step);
+            else if (onComplete) onComplete();
+        }
+        requestAnimationFrame(step);
+    }
+
+    function shuffle() {
+        let index = 0;
+
+        function doOneShuffle() {
+            if (index >= difficulty) {
+                setTimeout(() => {
+                    changeImages();
+                    positionWindowsInCircle();
+                    canClickWindows = true;
+                }, 400);
+                return;
+            }
+
+            const pat = shufflePatterns[Math.floor(Math.random() * shufflePatterns.length)];
+            const newPos = [];
+            const newIDs = Array(gridIDs.length);
+
+            for (const fr in pat) {
+                const to = pat[fr];
+                const fi = gridIDs.indexOf(parseInt(fr));
+                const ti = gridIDs.indexOf(parseInt(to));
+                if (fi !== -1 && ti !== -1) {
+                    newPos[fi] = positions[ti];
+                    newIDs[fi] = gridIDs[ti];
+                }
+            }
+
+            let completed = 0;
+            for (let i = 0; i < windows.length; i++) {
+                if (!newPos[i]) continue;
+                animateMove(windows[i], positions[i], newPos[i], shuffleDuration, () => {
+                    completed++;
+                    if (completed === windows.length) {
+                        positions = [...newPos];
+                        gridIDs = [...newIDs];
+                        index++;
+                        setTimeout(doOneShuffle, 30);
+                    }
+                });
+            }
+        }
+        doOneShuffle();
+    }
+
+    function changeImages() {
+        windows.forEach((win, i) => {
+            if (win.closed) return;
+            const img = win.document.getElementById('winImg');
+            if (img) {
+                const id = gridIDs[i];
+                img.src = `https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/key${id}.png`;
+            }
+        });
+    }
+
+    function positionWindowsInCircle() {
+        const angleStep = 2 * Math.PI / windows.length;
+        const cx = window.screen.availWidth / 2;
+        const cy = window.screen.availHeight / 2;
+        const duration = transitionDuration;
+        let startTime = performance.now();
+
+        function step(now) {
+            const elapsed = now - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            const eased = easeInOutQuad(t);
+
+            windows.forEach((win, i) => {
+                if (win.closed) return;
+                const id = gridIDs[i];
+                const ang = (id - 1) * angleStep;
+                const tx = cx + circleRadius * Math.cos(ang) - windowSize.width / 2;
+                const ty = cy + circleRadius * Math.sin(ang) - windowSize.height / 2;
+
+                const curX = positions[i].x;
+                const curY = positions[i].y;
+                
+                win.moveTo(
+                    Math.round(curX + (tx - curX) * eased),
+                    Math.round(curY + (ty - curY) * eased)
+                );
+            });
+
+            if (t < 1) requestAnimationFrame(step);
+            else spinCircle();
+        }
+        requestAnimationFrame(step);
+    }
+
+    function spinCircle() {
+        let angle = 0;
+        let speed = 0;
+        const accel = 0.038;
+        const maxSpeed = 1.35;
+        const cx = window.screen.availWidth / 2;
+        const cy = window.screen.availHeight / 2;
+
+        function step() {
+            angle += speed;
+            const radOffset = angle * Math.PI / 180;
+
+            windows.forEach((win, i) => {
+                if (win.closed) return;
+                const id = gridIDs[i];
+                const baseAng = (id - 1) * (2 * Math.PI / windows.length);
+                const ang = baseAng + radOffset;
+                const x = cx + circleRadius * Math.cos(ang) - windowSize.width / 2;
+                const y = cy + circleRadius * Math.sin(ang) - windowSize.height / 2;
+                win.moveTo(Math.round(x), Math.round(y));
+            });
+
+            speed = Math.min(maxSpeed, speed + accel);
+            requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    function flashCorrectKeyImage() {
+        if (!windows.length) return;
+        const idx = Math.floor(Math.random() * windows.length);
+        const win = windows[idx];
+        const img = win.document.getElementById('winImg');
+        if (img) {
+            img.src = 'https://raw.githubusercontent.com/d3add3v/Limbo/main/keys/green-key.png';
+            setTimeout(() => { if (img.src.includes('green-key')) img.src = backgroundImage; }, 1100);
+        }
+        win.correctWindow = true;
+    }
+
+    function startGame() {
+        document.getElementById('backgroundVideo').style.display = 'block';
+        const audio = document.getElementById('limboAudio');
+        audio.currentTime = 180;
+        audio.play().catch(() => {});
+
+        setTimeout(() => {
+            document.getElementById('backgroundVideo').play().catch(() => {});
+        }, 800);
+
+        openWindows();
+        flashCorrectKeyImage();
+        setTimeout(shuffle, 1200);
+    }
+
+    function flashScreen(color) {
+        const div = document.createElement('div');
+        div.style.cssText = `position:fixed;inset:0;z-index:9999;opacity:0.9;background:${color};transition:opacity 2.8s,background 0.7s;pointer-events:none;`;
+        document.body.appendChild(div);
+        document.body.classList.add('ending-background');
+        
+        setTimeout(() => { div.style.background = '#000'; }, 280);
+        setTimeout(() => { div.style.opacity = '0'; }, 2600);
+    }
+
+    function closeAllWindows() {
+        windows.forEach(w => { if (!w.closed) w.close(); });
+    }
+
+    startGame();
+</script>
+</body>
+</html>
